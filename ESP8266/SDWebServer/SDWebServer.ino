@@ -36,12 +36,17 @@ https://www.arduino.cc/en/Reference/SPI
 #include <SPI.h>
 #include <SD.h>
 #include <Wire.h>
+#include "wifi.h"
 
 #define DBG_OUTPUT_PORT Serial
 
-const char* ssid = "TAPITNA_P2.4";
-const char* password = "!Ca13Va08Do05$";
-const char* host = "esp8266sd";
+/* In wifi.h there are 3 variables to define the SSID,pass and hostname 
+ *  const char* ssid = "YOURSSID";
+ *  const char* password = "YOURPASSWD";
+ *  const char* host = "YOURHOSTNAME";
+ *  
+ *  
+ */
 
 ESP8266WebServer server(80);
 
