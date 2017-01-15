@@ -1,0 +1,108 @@
+<head><title>LogoBot</title>
+<style>
+	* {
+      font-family: monospace;
+      font-size:13;
+    }
+a {
+    text-decoration: none;
+}
+table.center {
+    margin-left:auto; 
+    margin-right:auto;
+    border: none;
+  }
+
+.rightdir {
+  -webkit-transform:rotate(0deg);
+  -moz-transform: rotate(0deg);
+  -ms-transform: rotate(0deg);
+  -o-transform: rotate(0deg);
+  transform: rotate(0deg);
+}
+.leftdir {
+  -webkit-transform:rotate(180deg);
+  -moz-transform: rotate(180deg);
+  -ms-transform: rotate(180deg);
+  -o-transform: rotate(180deg);
+  transform: rotate(180deg);
+}
+.downdir {
+  -webkit-transform:rotate(90deg);
+  -moz-transform: rotate(90deg);
+  -ms-transform: rotate(90deg);
+  -o-transform: rotate(90deg);
+  transform: rotate(90deg);
+}
+.updir {
+  -webkit-transform:rotate(270deg);
+  -moz-transform: rotate(270deg);
+  -ms-transform: rotate(270deg);
+  -o-transform: rotate(270deg);
+  transform: rotate(270deg);
+}
+div.SIZE{
+    height: 40px;
+    width: 40px;
+    background-position: center
+}
+div.STEPDIV{
+background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4AwdEAsscBnFOQAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAABB0lEQVQ4y6XUvU7DMBDA8X8aSwhYGOgrMFWi7TshZuYoDIUpQ8aKpY/AzBtUYqjEx8yDhC+znKWT5TjJcWPs+8l3PgfAAx3QMBxL4FVyPHCa2tTJ4g9wPwCugfchsBEsoDVQ/gdEThbQX0FTsQLeFHiSK6cWLFf+JfCiwOMcWAqqy29lrbCAqfK/gAfrCXW0gsXo0goiiEYb4MIKhp7tVPIn8Ag858BZD+jlkvbRtzPgHEMUQKVO4oFb6eFhaskFsImwStYWU3sYsG+VdKNaM2lsZokyrwFnmUMnJ8lho0EnyT4q01nf8lXiAvrGaRTo1Wu4U0Nt/n2FV7AdMVJz4ElyPoCjeMMf6SCD1L3nZ2kAAAAASUVORK5CYII=");
+background-repeat:no-repeat;
+}
+div.FFDIV{
+background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4AwdEAwwK1kPsQAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAA7klEQVQ4y52UOw7CMBBEXxJaPkfgFgiJ6yBoqaMgAakoUqI0HAfuxCeEZpFsx14nTGMpb3a8K9sBaIEHcMavGO/oIUUNUAYCNW4pAybAEkiBlRTfZAWYAguFe1VKBy3wAYqB3KtCzKHxYtw7fmF00gBVT570Hf8F1D25GlqJORQa417VTlE1kFv6tX817uEH2Ef4IVVeRwbcnW8zYBzgDTDXOsyN3VvgaHSWevhJCzs65lxCNJ5oYW/DvDPC0gi35BtjA4x6cksj2SlkjvFO2MYx75wwjXe0Vg4AYBvhwR/oS44+Gci9gU/g8ie39AU9jZQFKW/MbwAAAABJRU5ErkJggg==");
+background-repeat:no-repeat;
+}
+div.STOPDIV{
+background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4AwdEAgz1jybDwAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAhklEQVQ4y72VUQoAIQhEp71rn16jA3jg2h9dIiI0hhUkiHzoWAYAw7wCKMhbsVjnYADotsoFUBbGR/cNTcB0ia2eskwp9yBUJ5BXV1IHJs3CCWhAU8lKdArQmybuSmrmEUnComebtrW2AbZTwIMfjVYyvSnUa0O92LSnRx8O9PFFH7DUL+AF44WJu5P3u6QAAAAASUVORK5CYII=");
+background-repeat:no-repeat;
+}
+
+</style>
+<script>
+function move (dir, type){
+	SRC=dir+type+".htm";
+	console.log (SRC);
+	document.getElementById('dirframe').src = SRC
+	document.getElementById('dirframe').src =document.getElementById('dirframe').src 
+}
+</script>
+
+</head>
+<body>
+<table class="center" >
+<tr><td>
+<table class="center">
+<tr><td></td><td></td><td>
+	<table class="center">
+		<tr><td><div class="SIZE STEPDIV updir" onclick="move ('U','S')"/></td></tr>
+		<tr><td><div class="SIZE FFDIV updir" onclick="move ('U','F')"/></td></tr>
+	</table>
+</td><td></td><td></td></tr>
+<tr> 
+<td><div class="SIZE STEPDIV leftdir" onclick="move ('L','S')"/> </td>
+<td><div class="SIZE FFDIV leftdir" onclick="move ('L','F')"/> </td>
+<td><div class="SIZE STOPDIV rightdir" onclick="move ('S','X')"/> </td>
+<td><div class="SIZE FFDIV rightdir" onclick="move ('R','F')"/> </td>
+<td><div class="SIZE STEPDIV rightdir" onclick="move ('R','S')"/> </td>
+</tr>
+<tr><td></td><td></td><td>
+	<table class="center">
+		<tr><td><div class="SIZE FFDIV downdir" onclick="move ('D','F')"/></td></tr>
+		<tr><td><div class="SIZE STEPDIV downdir" onclick="move ('D','S')"/></td></tr>
+		
+	</table>
+</td><td></td><td></td></tr>
+</table>
+</td></tr>
+<tr><td>
+<iframe frameborder="0" width="1" height="1"></iframe>
+</td></tr>
+<tr><td>
+<iframe id="dirframe" src="http://192.168.10.11?D=S" frameborder="0" width="" height="50">
+</iframe>
+</td></tr>
+</table>
+</body>
+</html>
