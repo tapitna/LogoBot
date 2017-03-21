@@ -15,13 +15,13 @@ AVRDUDE = avrdude -c usbasp -P avrdoper -p $(DEVICE)
 CCDF="-DF_CPU=16000000 -DSERIALDEBUG"
 #SERIALDEBUG to print debug messages to uart
 
-COMPILE = avr-gcc -Wall -fshort-enums -mcall-prologues -Os  -I. -mmcu=$(DEVICE) ${CCDEF}
+COMPILE = avr-gcc -Wall -fshort-enums -mcall-prologues -Os  -I. -mmcu=$(DEVICE) ${CCDEF} -DF_CPU=16000000 #-DDEBUG_LEVEL=2
 #COMPILE = avr-gcc -Wall -fshort-enums -mcall-prologues -Os  -I. -mmcu=$(DEVICE) -DF_CPU=16000000
 # NEVER compile the final product with debugging! Any debug output will
 # distort timing so that the specs can't be met.
 
 
-OBJECTS = main.o I2C_slave.o uart.o
+OBJECTS =  I2C_slave.o uart.o HC595_OUT.o HC165_IN.o main.o
 
 
 # symbolic targets:

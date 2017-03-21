@@ -89,7 +89,7 @@ bool loadFromSdCard(String path) {
   else if (server.uri()=="/RF.htm") action=24; 
   else if (server.uri()=="/SX.htm") action=0; 
   
-    Wire.beginTransmission(4);
+  Wire.beginTransmission(4);
   Wire.write(action);             // sends value byte  
   Wire.endTransmission();     // stop transmitting
   
@@ -310,6 +310,7 @@ while (error != 0){
       DBG_OUTPUT_PORT.print("0");
     DBG_OUTPUT_PORT.print(address,HEX);
     DBG_OUTPUT_PORT.println(" !");
+    
   }
   if (error==4){
     DBG_OUTPUT_PORT.print("Unknow error at address 0x");
@@ -325,8 +326,31 @@ void loop(void) {
 server.handleClient();
 byte error, address=4;
 int nDevices;
-
-
+Serial.print("waiting for slave\n");
+ delay(1000);
+ Wire.beginTransmission(4);
+  Wire.write(0); 
+  Wire.endTransmission(false);
+    delay(1000); 
+ int B_available= Wire.requestFrom(4, 3,1);
+ Serial.print("Received #: ");
+ Serial.println(B_available);
+ while(Wire.available() == 0){
+    Serial.println("RX: no data");
+ }
+ if (B_available==3)    // slave may send less than requested
+  { 
+    int c = Wire.read();    // receive a byte as character
+    Serial.print("RX: ");
+    Serial.print(c);         // print the character
+     c = Wire.read();    // receive a byte as character
+    Serial.print("RX: ");
+    Serial.print(c);         // print the character
+     c = Wire.read();    // receive a byte as character
+    Serial.print("RX: ");
+    Serial.print(c);         // print the character
+  }
+  Wire.endTransmission();
 //Serial.print("TX:"); 
 //Serial.print(error);
 //Serial.print("\n"); 

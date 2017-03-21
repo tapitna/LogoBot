@@ -25,7 +25,7 @@ ISR(TWI_vect){
 		k++;
 	}*/	
 	//status[0]=TWSR & 0xF8;
-
+ cli();
 	// temporary stores the received data
 	uint8_t data;
 	
@@ -73,17 +73,23 @@ ISR(TWI_vect){
 		}
 	}
 	else if( (TWSR & 0xF8) == TW_ST_DATA_ACK ){ // device has been addressed to be a transmitter
-		status[4]=1;
+		status[0]=4;
 		// copy data from TWDR to the temporary memory
 		data = TWDR;
-		
+		status[1]=data;
+		status[2]=buffer_address;
 		// if no buffer read address has been sent yet
 		if( buffer_address == 0xFF ){
 			buffer_address = data;
 		}
-		
+		txbuffer[data]=3;
 		// copy the specified buffer address into the TWDR register for transmission
-		TWDR = txbuffer[buffer_address];
+		//TWDR = txbuffer[buffer_address];
+		TWDR=15;
+		if (status[3]==0){
+			status[3]=1;
+			status[4]=TWDR;
+		}
 		// increment buffer read address
 		buffer_address++;
 		
@@ -101,6 +107,7 @@ ISR(TWI_vect){
 	else{
 		// if none of the above apply prepare TWI to be addressed again
 		TWCR |= (1<<TWIE) | (1<<TWEA) | (1<<TWEN);
-		status[5]=1;
+		//status[0]=5;
 	} 
+	sei();
 }
