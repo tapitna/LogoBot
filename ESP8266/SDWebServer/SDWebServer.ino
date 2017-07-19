@@ -1,3 +1,5 @@
+
+
 /*
   SDWebServer - Example WebServer with SD Card backend for esp8266
 
@@ -37,7 +39,8 @@ https://www.arduino.cc/en/Reference/SPI
 #include <SD.h>
 #include <Wire.h>
 #include "wifi.h"
-
+#include "MQ.h"
+#include <PubSubClient.h>
 #define DBG_OUTPUT_PORT Serial
 
 /* In wifi.h there are 3 variables to define the SSID,pass and hostname 
@@ -49,6 +52,14 @@ https://www.arduino.cc/en/Reference/SPI
  */
 
 ESP8266WebServer server(80);
+PubSubClient MQclient;
+WiFiClient Wclient;
+
+char msg[50];
+
+#define MQSYN "SYN"
+#define MQSACK "SACK"
+#define MQACK "ACK"
 
 static bool hasSD = false;
 File uploadFile;
@@ -201,7 +212,7 @@ void printDirectory() {
   dir.rewindDirectory();
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/json", "");
-  WiFiClient client = server.client();
+ // WiFiClient client = server.client();
 
   server.sendContent("[");
   for (int cnt = 0; true; ++cnt) {
@@ -243,6 +254,25 @@ void handleNotFound() {
   DBG_OUTPUT_PORT.print(message);
 }
 
+void on_msg_mq_callback(char* topic, byte* payload, unsigned int length) {
+  // Conver the incoming byte array to a string
+  payload[length] = '\0'; // Null terminator used to terminate the char array
+  String message = (char*)payload;
+
+  Serial.print("Message arrived on topic: [");
+  Serial.print(topic);
+  Serial.print("], ");
+  Serial.println(message);
+
+  if(message == MQACK){
+    //MQ is ready to accept new messages
+     Serial.print("RX");
+     //strncpy(msg, MQACK,sizeof(MQACK) );
+     //strncat(msg, ClientID, sizeof(ClientID));
+    MQclient.publish(outTopic, msg);
+  }
+
+}
 
 void setup(void) {
   byte error=1, address=4;
@@ -319,37 +349,87 @@ while (error != 0){
     DBG_OUTPUT_PORT.println(address,HEX);
   }
 } 
+DBG_OUTPUT_PORT.print("Starintg MQ Client");
+MQclient.setClient(Wclient);
+MQclient.setServer(MQServer,MQPort);
+MQclient.setCallback(on_msg_mq_callback);
+if (!MQclient.connected()) {
+  reconnect();
 }
-byte val=0;
-void loop(void) {
+DBG_OUTPUT_PORT.print("Connected to MQ server");
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!MQclient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (MQclient.connect(ClientID,MQClientUser, MQClientPass)) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      MQclient.publish(outTopic, ClientID);
+      // ... and resubscribe
+      MQclient.subscribe(inTopic);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(MQclient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+
+/***********************MAIN LOOP******************/
+char dst[5];
+long int rxbuffer;
+int sampleN=0;
+
+void loop(void) {     
 //SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0));
 server.handleClient();
+  
+if (!MQclient.connected()) {
+  reconnect();
+}
+
+MQclient.loop();
 byte error, address=4;
 int nDevices;
-Serial.print("waiting for slave\n");
- delay(1000);
+int i=0;
+
+//Serial.print("waiting for slave\n");
+ //delay(1000);
  Wire.beginTransmission(4);
-  Wire.write(0); 
-  Wire.endTransmission(false);
-    delay(1000); 
- int B_available= Wire.requestFrom(4, 3,1);
- Serial.print("Received #: ");
- Serial.println(B_available);
- while(Wire.available() == 0){
+//  Wire.write(2);
+//  Wire.endTransmission(false);
+    //delay(1000); 
+ int B_available= Wire.requestFrom(4, 6,1);
+// Serial.print("Received #: ");
+// Serial.println(B_available);
+ if (Wire.available() == 0){
     Serial.println("RX: no data");
- }
- if (B_available==3)    // slave may send less than requested
-  { 
+ }else{
+  if (B_available==6)   {   // slave may send less than requested
     int c = Wire.read();    // receive a byte as character
-    Serial.print("RX: ");
-    Serial.print(c);         // print the character
-     c = Wire.read();    // receive a byte as character
-    Serial.print("RX: ");
-    Serial.print(c);         // print the character
-     c = Wire.read();    // receive a byte as character
-    Serial.print("RX: ");
-    Serial.print(c);         // print the character
+    for (i=0; i<6; i++){
+      c = Wire.read();    // receive a byte as character
+      //Serial.print(" RX : ");
+      //Serial.print(c);         // print the character
+      dst[i]=c;
+      c=0;
+    }
+    if (sampleN != dst[4]){
+      sampleN=dst[4];
+      sprintf(msg,"%d:%d:%d:%d:%d",dst[4],dst[3],dst[2],dst[1],dst[0]);
+      Serial.println(msg);
+      MQclient.publish(outTopic, msg);
+    }
+
   }
+ }
   Wire.endTransmission();
 //Serial.print("TX:"); 
 //Serial.print(error);

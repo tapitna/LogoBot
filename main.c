@@ -46,7 +46,7 @@
 #define INSTR_PER_US 16						// instructions per microsecond (depends on MCU clock, 16MHz current)
 #define INSTR_PER_MS 16000					// instructions per millisecond (depends on MCU clock, 16MHz current)
 #define MAX_RESP_TIME_MS 200				// timeout - max time to wait for low voltage drop (higher value increases measuring distance at the price of slower sampling)
-#define DELAY_BETWEEN_TESTS_MS 20			// echo cancelling time between sampling
+#define DELAY_BETWEEN_TESTS_MS 100			// echo cancelling time between sampling
 
 #define SONAR_TRIGGER_DDR DDRD
 #define SONAR_TRIGGER_PORT PORTD
@@ -58,35 +58,42 @@
 #define SONAR_TRIGGER_OUTPUT_MODE() SONAR_TRIGGER_DDR|=(1<<SONAR_TRIGGER_DQ)
 #define SONAR_TRIGGER_LOW() SONAR_TRIGGER_PORT&=~(1<<SONAR_TRIGGER_DQ)
 #define SONAR_TRIGGER_HIGH() SONAR_TRIGGER_PORT|=(1<<SONAR_TRIGGER_DQ)
+/*for a 16MHz clock
+* T=1/16MHz=0.0625us
+* Top Counter=255 so there are 255 clocks= 255*0.0625=15.94us
+* To remove the comas:
+* 0.0625us
+* 15.94x10000=159400
+* SoundSpeed=0.343mm/us
+* distance=(o*15.94+c*0.0625)0.343/2
+*			=(o*255+c)*0.0625*0.343/2
+* 			=(o*255+c)*107/100
+* Max Distante=2m=2000mm
+* Sensor HARD LIMIT. If the object is 2000mm, then the pulse will take 5830.9us to go and another 5830.9to come back
+* So the pulse will take 11661.8us in total (go and return)
+* There is a overflow every 15.94us, so if overflow >732 times, then I assume there was a timeout and there is no object 
+* in leess than 2m
+* Limit=2000mm 
+* 2000/0.343=5830.9
+* 5830.9*2/15.94=732
+*/
+#define PULSE_TIMEOUT 732  //if there are more than this overflows, then the object is more than 2m, discard the measurement 
+#define TIMER_DELAY 159400	//delay after each timer overflow.(us*10000)
+#define INSTR_DELAY 625		//clock period (us*10000)
+#define SOUND_SPEED 3430	//soundspeed mm/us x10000
+/* There is an overflow every 15.94us, so after 4000 overflow (~64ms) I can send a new sample
+ */
+#define SAMPLE_DELAY 2000		//minimum delay between samples. 
 
-volatile unsigned long result = 0;
+//volatile uint32_t result = 0;
 volatile unsigned char up = 0;
 volatile unsigned char running = 0;
-volatile uint32_t timerCounter = 0;
-volatile uint8_t PCOUNT1=0;
-volatile uint8_t PCOUNT2=0;
-volatile uint32_t PCOUNT3=0;
-volatile uint8_t PCOUNT4=0;
-SIGNAL(INT1_vect) 
-{
-        if (running) { //accept interrupts only when sonar was started
-
-                if (up == 0) { // voltage rise, start time measurement
-						PCOUNT1=1;
-                        up = 1;
-                        timerCounter = 0;
-                        TCNT2 = 0; // reset timer counter 
-                } else {
-						PCOUNT2=1;
-                        // voltage drop, stop time measurement
-                        up = 0;
-                        // convert from time to distance(millimeters): d = [ time_s * 340m/s ] / 2 = time_us/58
-                        result = (timerCounter * 256 + TCNT2) / 58	; 
-                        running = 0;
-                }
-        }
-}
-
+volatile uint32_t overflowCounter = 0; 
+volatile uint8_t result = 0; 
+volatile uint8_t currentCounter=0;
+volatile uint32_t delayCounter=0;
+volatile uint32_t distance_avg[5];
+volatile uint8_t dist_index=0;
 /**
         Sonar interfacing:
                 1. Send high impulse to Trig input for minimum 10us
@@ -97,41 +104,163 @@ SIGNAL(INT1_vect)
                         distance = [ deltaT * sound_speed(340m/s) ] / 2
                 5. Make a delay before starting the next cycle to compensate for late echoes
 */
-// timer overflow interrupt, each time when timer value passes 255 value
 
-SIGNAL(TIMER2_OVF_vect)
+SIGNAL(INT1_vect) 
 {
-        if (up) {       // voltage rise was detected previously
-        
-                timerCounter++; // count the number of overflows
-                // dont wait too long for the sonar end response, stop if time for measuring the distance exceeded limits
-                uint32_t ticks = timerCounter * 256 + TCNT2;
-				PCOUNT3=timerCounter;
-                uint32_t max_ticks = (uint32_t)MAX_RESP_TIME_MS * INSTR_PER_MS; // this could be replaced with a value instead of multiplying
+        if (running) { //accept interrupts only when sonar was started
 
-                if (ticks > max_ticks) {
-		                PCOUNT4=1;			
-                        // timeout
-                        up = 0;          // stop counting timer values
-                        running = 0; // ultrasound scan done
-                        result = -1; // show that measurement failed with a timeout (could return max distance here if needed)
+                if (up == 0) { // voltage rise, start time measurement (low to high)
+						// start timer
+                        up = 1;
+                        overflowCounter = 0;
+                        currentCounter=0;
+                        result=0;
+                        TCNT2 = 0; // reset timer counter 
+                } else {
+                        // voltage drop, stop time measurement
+                       //stop timer
+                        currentCounter=TCNT2;
+                        distance_avg[dist_index]=(overflowCounter*255+currentCounter)*107/10000;
+                        up = 0;
+                        running = 0;
+						dist_index++;
+						if (dist_index==3){  //i take 3 samples then calculate the average
+							result=1;
+							dist_index=0;
+						}
+							
+                       
                 }
         }
 }
 
+// timer overflow interrupt, each time when timer value passes 255 value
+
+SIGNAL(TIMER2_OVF_vect)
+{
+        if (up) {       // The pulse has been sent, we are counting the time until the pulse is detected back
+				delayCounter=0;
+                overflowCounter++; // count the number of overflows
+                // dont wait too long for the sonar end response, stop if time for measuring the distance exceeded limits
+                if (overflowCounter>PULSE_TIMEOUT) {
+                        // timeout
+                        up = 0;          // stop counting timer values
+                        running = 0; // ultrasound scan done
+                        //overflowCounter = -1; // show that measurement failed with a timeout (could return max distance here if needed)
+						distance_avg[dist_index]=2000;
+						dist_index++;
+						if (dist_index==3){
+							result=1;
+							dist_index=0;
+						}
+                }
+        }else{
+			delayCounter++;	
+		}
+}
+//I only need the timer2 active when i send a sonar pulse, so activate or deactivate the timer when needed.
+void start_TIMER2(void){
+	TIMSK2 = 1<<TOIE2;
+}
+void stop_TIMER2(void){
+	TIMSK2 &= ~(1<<TOIE2);
+}
 // generate an impulse for the Trig input (starts the sonar)
 void sonar() {
-        //PORTB = 0x00; // clear to zero for 1 us
 		SONAR_TRIGGER_LOW();
         _delay_us(1);
-                
-        //PORTB = 0x01; // set high for 10us
 		SONAR_TRIGGER_HIGH();
         running = 1;  // sonar launched
         _delay_us(10);
-        
 		SONAR_TRIGGER_LOW();
-        //PORTB = 0x00; // clear  
+}
+uint8_t radar_pulse(uint8_t distance_byte[]){
+	
+uint32_t distance = 0;
+uint8_t response = 0;
+	
+char buffer [40];
+//		sprintf(buffer," %lu \r\n", delayCounter);
+//	uart_puts(buffer);	
+if ((delayCounter>SAMPLE_DELAY)&&(up==0)){ //Check if I can send a new pulse. The delay between pulses is ~63ms
+	delayCounter=0;
+	sonar(); // launch ultrasound measurement!
+}
+		
+	if (result==1){
+		//distance=overflowCounter*255+currentCounter;
+		//distance=distance*107/10000;
+			/*distance is 4 bytes. So I get each byte as an array element for later transmission to the ESP8266
+					* MSB ... LSB
+					* 3 2 1 0 
+					*/
+		//distance=(distance_avg[0]+distance_avg[1]+distance_avg[2]+distance_avg[3]+distance_avg[4])/5;
+		distance=(distance_avg[0]+distance_avg[1]+distance_avg[2])/3;
+		distance_byte[0]=distance & 0xFF;  //LSB  
+		distance_byte[1]=distance >>8;
+		distance_byte[2]=distance >>16;
+		distance_byte[3]=distance >>24; //MSB
+		//sprintf(buffer," distance1: %lumm %lu %lu %lu\n\r", distance,distance_avg[0],distance_avg[1],distance_avg[2]);
+		//uart_puts(buffer);
+		response=1;
+		result=0;
+	}	
+	if (result==2){
+		distance=2000;
+		distance_byte[0]=distance & 0xFF;  //LSB  
+		distance_byte[1]=distance >>8;
+		distance_byte[2]=distance >>16;
+		distance_byte[3]=distance >>24; //MSB
+		//sprintf(buffer," distance2: %lumm \n\r", distance);
+		//uart_puts(buffer);
+		response=1;
+		result=0;
+	}
+
+   return response;
+}
+int scan(void){
+	uint8_t distance_bytes[4];	//the distance cant take up to 4 bytes. 
+	uint8_t k=0;
+	char buffer [3];
+		uart_puts("Oper: ");
+		itoa(TWI_BUFF[TWI_OPER], buffer, 10);
+			//_delay_ms(500);
+			uart_puts(buffer);
+			uart_puts("\n\r");
+		if (TWI_BUFF[TWI_OPER]==TWI_TX){
+
+		uart_puts("scan\n\r");
+		k=0;
+		while(OCR1A<=500){
+			OCR1A=OCR1A+15;
+			k++;
+			while (radar_pulse(distance_bytes)==0){
+			}
+			TWI_BUFF[TWI_1B]=distance_bytes[0];
+			TWI_BUFF[TWI_2B]=distance_bytes[1];
+			TWI_BUFF[TWI_3B]=distance_bytes[2];
+			TWI_BUFF[TWI_4B]=distance_bytes[3];
+			TWI_BUFF[TWI_ANGLE]=k;
+			//sprintf(buffer," distanceI: %d %d %d %d  %d  \n\r", k,distance_bytes[0],distance_bytes[1],distance_bytes[2],distance_bytes[3]);
+			//uart_puts(buffer);
+		}
+		while(OCR1A>=200){
+			OCR1A=OCR1A-15;
+			k++;
+			while (radar_pulse(distance_bytes)==0){
+			}
+			TWI_BUFF[TWI_1B]=distance_bytes[0];
+			TWI_BUFF[TWI_2B]=distance_bytes[1];
+			TWI_BUFF[TWI_3B]=distance_bytes[2];
+			TWI_BUFF[TWI_4B]=distance_bytes[3];
+			TWI_BUFF[TWI_ANGLE]=k;
+			//sprintf(buffer," distanceI: %d %d %d %d  %d  \n\r", k,distance_bytes[0],distance_bytes[1],distance_bytes[2],distance_bytes[3]);
+			//uart_puts(buffer);
+		}
+			uart_puts("TX2\n\r");
+
+		}
 }
 
 int moveWheel( uint8_t direction,uint8_t WheelDir[], uint8_t sensorREAD[], uint8_t sensorOLD[], uint8_t steps, uint8_t pulsesFIN[]){
@@ -210,9 +339,11 @@ void Wait2()
    }
 
 }
+
+/*********************MAIN**************/
 int main(void) {
 //I2C init
-I2C_init(0x4); // initalize as slave with address 0x4	
+I2C_init(TWI_ADDRESS); // initalize as slave with address 0x4	
 
 	char buffer [20];
 uint8_t i=0;
@@ -220,9 +351,10 @@ uint8_t i=0;
     DDRD &= ~(1<<PD3);
 	    // PD6 and PD5 is now an output PWMs
     DDRD |= (1 << DDD6)|(1 << DDD5);
-	//PDB1 Servo 1 CLIP
+	//PDB1 Servo 1 Radar
 	//PDB2 Servo 2 ARM
-	DDRB |= (1 << PB1)|(1 << PB2);;
+	DDRB |= (1 << PB1)|(1 << PB2);
+	
     // set none-inverting mode
 	TCCR0A |= (1 << COM0A1)|(1 << COM0B1);
 	//PWM Phase Corrected mode 1 TOP 0xFF
@@ -280,67 +412,55 @@ _delay_ms(1000);
         //EICRA |= (1<<ISC10)|(1<<ISC11); //For rising edge
         EICRA |= (1<<ISC10);	//any logic change generate an int.
         EIMSK |= (1 << INT1);      // Turns on INT1
-        
+        //--------------radar timer-----------------
 		// 2.CREATE Timer T2 to count seconds
         // setup 8 bit timer & enable interrupts, timer increments to 255 and interrupts on overflow
+        TIMSK2 &= ~(1<<TOIE2); //disable time while configuring 
         TCCR2B = (0<<CS02)|(0<<CS01)|(1<<CS00); // select internal clock with no prescaling
         TCNT2 = 0; // reset counter to zero
-        TIMSK2 = 1<<TOIE2; // enable timer interrupt
+        //TIMSK2 = 1<<TOIE2; // enable timer interrupt
+        
+   //Configure TIMER1
+   //OCR1B= ARM
+   //OCR1A= radar servo
+   TCCR1A|=(1<<COM1A1)|(1<<COM1B1)|(1<<WGM11);        //NON Inverted PWM
+   TCCR1B|=(1<<WGM13)|(1<<WGM12)|(1<<CS11)|(1<<CS10); //PRESCALER=64 MODE 14(FAST PWM)	
+	 ICR1=4999;  //fPWM=50Hz (Period = 20ms Standard).
+				//F=50Hz (T*64*ICR1)=0.02s 
+	/*The PWM freqquence is 50Hz, period 20ms
+	 * Servo 1ms 0
+	 * 		1.5ms 90
+	 * 		2ms	180
+	 */
+	 //OCR1A CLIP
+	 //OCR1B ARM //190 MIN UP  180 degree (500 MAX DOWN)
+		//CLIP 110 close
+		//CLIP 500 open
+		//OCR1B=300;
+		//disable ARM servo
+		DDRB &= ~(1<<PB2);
+		DDRB &= ~(1<<PB1);
 cli();
 sei(); 
 
-//EICRA |= ((1 << ISC11) | (1 << ISC10)); 
-//EIMSK |= (1 << INT1);
-        int numDelays = 0;
-        
-    for(;;){  /* main event loop */
-			/*_delay_ms(100);
-			uart_puts("P1:");
-			itoa (PCOUNT1,buffer,10);
-			uart_puts(buffer);
-						uart_puts(" P2:");
-			itoa (PCOUNT2,buffer,10);
-			uart_puts(buffer);
-						uart_puts(" P3:");
-			//itoa (PCOUNT3,buffer,10);
-			sprintf (buffer,"%lu", timerCounter);
-			uart_puts(buffer);
-						uart_puts(" P4:");
-			itoa (PCOUNT4,buffer,10);
-			uart_puts(buffer);
-						uart_puts(" R:");
-			if (result>1000){
-				itoa (result,buffer,10);
-				uart_puts(buffer);
-			}*/
-			_delay_ms(50);
-			sprintf(buffer," Distance: %4.1lumm\r ", result);
-			//itoa (result,buffer,10);
-			uart_puts(buffer);
-               if (running == 0) { // launch only when next iteration can happen
-                
-                        // configurable delay count
-                        _delay_ms(1);
-                        numDelays++;
-                
-                        // create a delay between tests, to compensate for old echoes
-                        if (numDelays > DELAY_BETWEEN_TESTS_MS) 
-						{ 
-                                sonar(); // launch ultrasound measurement!
-                                numDelays = 0;
-                        }
-                }
-    }
-    
-shiftInitIN();	 //Initialise IN register
-shiftInitOUT(); 	//Initialise OUT register
+
+//uint8_t sonar_result;
+//uint32_t DIS=0;    
+
+_delay_ms(1000);
+shiftInitIN();	 //Initialize IN register
+shiftInitOUT(); 	//Initialize OUT register
+
+
+
+
+
+
 
 /*LEDYON;
 _delay_ms(500);
 LEDYOFF;
 _delay_ms(200);*/
-uart_puts("Ready to start...");
-uart_puts("\r\n");
 //_delay_ms(1000);
 uart_puts("111");
 uart_puts("\r\n");
@@ -423,32 +543,10 @@ uart_puts("Init ST sensors2\r\n");
 
 */
 
-/*	
-   //Configure TIMER1
-   TCCR1A|=(1<<COM1A1)|(1<<COM1B1)|(1<<WGM11);        //NON Inverted PWM
-   TCCR1B|=(1<<WGM13)|(1<<WGM12)|(1<<CS11)|(1<<CS10); //PRESCALER=64 MODE 14(FAST PWM)	
-	 ICR1=4999;  //fPWM=50Hz (Period = 20ms Standard).
-	 //OCR1A CLIP
-	 //OCR1B ARM //190 MIN UP  180 degree (500 MAX DOWN)
-		//CLIP 110 close
-		//CLIP 500 open
-  while(1)
-   {
-
-	OCR1B=300;
-	      Wait2();
-      OCR1A=110;   
-
-      Wait2();
+	
 
 
-      OCR1B=180; //UP
-      Wait2();
-      OCR1A=500;  
-      Wait2();
 
-   }
-  */ 
 
 for (i=0;i<8;i++){
 	itoa (sensorIN[i],buffer,10);
@@ -518,62 +616,66 @@ for (i=0;i<2;i++){
 	uart_puts(buffer);
 	uart_puts("\r\n");
 }
-while (1) {
-			itoa(status[0], buffer, 10);
-			uart_puts(buffer);
-			uart_puts("..");
-			itoa(status[1], buffer, 10);
-			uart_puts(buffer);
-			uart_puts("..");
-			itoa(status[2], buffer, 10);
-			uart_puts(buffer);
-			uart_puts("..");
-			itoa(status[3], buffer, 10);
-			uart_puts(buffer);
-			uart_puts("..");
-			itoa(status[4], buffer, 10);
-			uart_puts(buffer);
-			_delay_ms(100);
-			uart_puts("\n\r");
-}
+
+
+
+//test radar
+start_TIMER2();
+uint8_t k=0;
+//enable servo1 
+DDRB &= ~(1<<PB2);
+DDRB |= (1 << PB1);
+//move to center
+OCR1A=200;
+_delay_ms(1000);
+//DDRB &= ~(1<<PB1);
+start_TIMER2();
+//for (i=0; i<10;i++){
+//scan();
+
+
+uart_puts("Started ");
+_delay_ms(1000);
 
 while (1){
-		if (status[0]==1){
-			status[0]=0;
-			itoa(status[1], buffer, 10);
+	scan();
+		if (TWI_BUFF[TWI_OPER]==TWI_RX){
+			uart_puts("RX   ");
+			TWI_BUFF[TWI_OPER]=TWI_IDLE;
+			itoa(TWI_BUFF[MOTOR_DIR], buffer, 10);
 			uart_puts(buffer);
 			_delay_ms(100);
 			uart_puts("\n\r");
-			switch (status[1]){
-				case 2:
+			switch (TWI_BUFF[MOTOR_DIR]){
+				case BACKSTEPS:
 					direction=WB;
 					steps=2;
 				break;
-				case 3:
+				case BACKCONT:
 					direction=WB;
 					steps=10;
 				break;
-				case 4:
+				case FORWARDSTEPS:
 					direction=WF;
 					steps=2;
 				break;
-				case 6:
+				case FORWARDCONT:
 					direction=WF;
 					steps=10;
 				break;
-				case 8:
+				case RIGHTSTEPS:
 					direction=WR;
 					steps=2;
 				break;
-				case 12:
+				case RIGHTCONT:
 					direction=WR;
 					steps=10;
 				break;
-				case 16:
+				case LEFTSTEPS:
 					direction=WL;
 					steps=2;
 				break;	
-				case 24:
+				case LEFTCONT:
 					direction=WL;
 					steps=10;
 				break;	
@@ -581,12 +683,12 @@ while (1){
 					i=1;				
 				
 			}
-			moveWheel(direction, WheelDir, sensorIN, sensorOLD, steps,pulsesFIN);
-			for (i=0;i<2;i++){
-				itoa (pulsesFIN[i],buffer,10);
-				uart_puts(buffer);
-			}
-			uart_puts("\r\n");
+			//moveWheel(direction, WheelDir, sensorIN, sensorOLD, steps,pulsesFIN);
+			//for (i=0;i<2;i++){
+			//	itoa (pulsesFIN[i],buffer,10);
+			//	uart_puts(buffer);
+			//}
+			//uart_puts("\r\n");
 			
 		}
 	}

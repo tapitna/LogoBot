@@ -3,6 +3,7 @@
 #include <avr/interrupt.h> 
 
 #include "I2C_slave.h"
+
 uint8_t k=0;
 void I2C_init(uint8_t address){
 	// load address into TWI address register
@@ -47,8 +48,8 @@ ISR(TWI_vect){
 			buffer_address = data; 
 			
 			// clear TWI interrupt flag, prepare to receive next byte and acknowledge
-		status[0]=1;	//new data flag
-		status[1]=data;
+		TWI_BUFF[TWI_OPER]=TWI_RX;	//new data flag
+		TWI_BUFF[MOTOR_DIR ]=data;
 		//data=0;
 		//status[2]=1;
 			TWCR |= (1<<TWIE) | (1<<TWINT) | (1<<TWEA) | (1<<TWEN); 
@@ -56,11 +57,11 @@ ISR(TWI_vect){
 		else{ // if a databyte has already been received
 			
 			// store the data at the current address
-			rxbuffer[buffer_address] = data;
+			//rxbuffer[buffer_address] = data;
 			
 			// increment the buffer address
 			buffer_address++;
-			status[3]=1;
+			//TWI_BUFF[3]=1;
 			// if there is still enough space inside the buffer
 			if(buffer_address < 0xFF){
 				// clear TWI interrupt flag, prepare to receive next byte and acknowledge
@@ -73,28 +74,26 @@ ISR(TWI_vect){
 		}
 	}
 	else if( (TWSR & 0xF8) == TW_ST_DATA_ACK ){ // device has been addressed to be a transmitter
-		status[0]=4;
+		TWI_BUFF[TWI_OPER]=TWI_TX;
+		//TWI_BUFF[1]=5;
 		// copy data from TWDR to the temporary memory
-		data = TWDR;
-		status[1]=data;
-		status[2]=buffer_address;
+		//data = TWDR;
+		//TWI_BUFF[TWI_1B]=data;
+		//TWI_BUFF[1]=data;
+		//TWI_BUFF[2]=buffer_address;
 		// if no buffer read address has been sent yet
 		if( buffer_address == 0xFF ){
-			buffer_address = data;
+			buffer_address = 1;	//first byte to transmmit
 		}
-		txbuffer[data]=3;
+		//txbuffer[data]=3;
 		// copy the specified buffer address into the TWDR register for transmission
 		//TWDR = txbuffer[buffer_address];
-		TWDR=15;
-		if (status[3]==0){
-			status[3]=1;
-			status[4]=TWDR;
-		}
+		TWDR=TWI_BUFF[buffer_address];
 		// increment buffer read address
 		buffer_address++;
 		
 		// if there is another buffer address that can be sent
-		if(buffer_address < 0xFF){
+		if(buffer_address <= TWI_ANGLE){	//last byte to transmit
 			// clear TWI interrupt flag, prepare to send next byte and receive acknowledge
 			TWCR |= (1<<TWIE) | (1<<TWINT) | (1<<TWEA) | (1<<TWEN); 
 		}
